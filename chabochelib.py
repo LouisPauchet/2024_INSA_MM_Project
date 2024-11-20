@@ -112,23 +112,28 @@ def sim_chaboche(E, sigma_y, C, gamma, Q, b, strain_input):
 
     sigma_max_i = 0
     epsilon_max_i = 0
+    epsilon_max_track = 0
 
     epsilon_elastic_i = 0
 
     sigma_max_elastic = 0
+    sigma_prec = 0
 
     p = 0
+
+    sigma_y_i = sigma_y
+    signe = True
 
 
     for i, epsilon in enumerate(strain_input):
 
 
         sigma = sigma_max_i + (E * (epsilon - epsilon_max_i))
-        sigma_y_i = sigma_y + isotropic_hardening(p, Q, b) #sigma_y + R
 
 
-        if (np.abs(sigma) > sigma_y_i) and (np.abs(epsilon_max_i) < np.abs(epsilon)):
-
+        if (np.abs(sigma) > sigma_y_i) and ((np.abs(epsilon_max_track) < np.abs(epsilon)) or signe) :
+            print(f"{i:<5} {sigma:<10.2f} {sigma_y_i:<12.2f} {epsilon:<10.2e}")
+            signe = False
             p = p + np.abs(epsilon - strain_input[i - 1])
 
             X = kinematic_hardening(p, C, gamma)
@@ -138,12 +143,21 @@ def sim_chaboche(E, sigma_y, C, gamma, Q, b, strain_input):
             stress_output.append(sigma_plastic)
 
             epsilon_max_i = epsilon
+            epsilon_max_track = epsilon
             sigma_max_i = sigma_plastic
 
         else :
+
+            if (sigma_prec * sigma) < 0:
+                epsilon_max_track = 0
+                signe = True
+            sigma_y_i = sigma_y + isotropic_hardening(p, Q, b)  # sigma_y + R
             epsilon_elastic_i = epsilon
             sigma_max_elastic = sigma
             stress_output.append(sigma)
+
+
+        sigma_prec = sigma
 
     return np.array(stress_output)
 
