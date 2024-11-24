@@ -1,4 +1,3 @@
-from fontTools.misc.bezierTools import epsilon
 from scipy.stats import linregress
 import numpy as np
 
@@ -27,83 +26,6 @@ def isotropic_hardening(p, Q, b):
         R (float): Isotropic hardening
     """
     return Q * (1 - np.exp(-b * p))
-
-
-def simulate_chaboche(E, sigma_y, C, gamma, Q, b, strain_input):
-    """
-    Simule la réponse contrainte-déformation d'un matériau en utilisant le modèle de Chaboche.
-    Simulates the stress-strain response of a material using the Chaboche model.
-
-    Paramètres | Parameters :
-        E (float): Module de Young [MPa] | Young's modulus [MPa]
-        sigma_y (float): Limite d'élasticité initiale [MPa] | Initial yield stress [MPa]
-        C (float): Module d'écrouissage cinématique [MPa] | Kinematic hardening modulus [MPa]
-        gamma (float): Taux de saturation pour l'écrouissage cinématique | Saturation rate for kinematic hardening
-        Q (float): Valeur de saturation pour l'écrouissage isotrope [MPa] | Saturation value for isotropic hardening [MPa]
-        b (float): Taux de saturation pour l'écrouissage isotrope | Saturation rate for isotropic hardening
-        strain_input (array): Tableau des valeurs de déformation imposée | Array of strain values (load path)
-
-    Retourne | Returns :
-        stress_output (array): Valeurs de contrainte simulées [MPa] | Simulated stress values [MPa]
-    """
-    # Initialisation des variables d'état et des sorties
-    # Initialize state variables and outputs
-    stress_output = []
-    plastic_strain = 0.0  # Déformation plastique initiale | Initial plastic strain
-    backstress = 0.0  # Backstress initial (X) | Initial backstress (X)
-    p = 0.0  # Déformation plastique cumulée | Accumulated plastic strain (p)
-
-    # Boucle sur les déformations
-    # Loop through the strain input values
-    for strain in strain_input:
-        # Calcul de la contrainte d'essai à partir de la réponse élastique
-        # Compute the trial stress based on the elastic response
-        trial_stress = E * (strain - plastic_strain)
-
-        # Calcul de la contrainte effective tenant compte de l'écrouissage cinématique
-        # Compute the effective stress considering kinematic hardening
-        effective_stress = abs(trial_stress - backstress)
-
-        # Calcul de la limite d'élasticité avec l'écrouissage isotrope
-        # Compute the yield stress incorporating isotropic hardening
-        R = isotropic_hardening(p, Q, b)
-        yield_stress = sigma_y + R
-
-        if effective_stress > yield_stress:
-            # Une déformation plastique se produit
-            # Plastic deformation occurs
-
-            # Calcul de l'incrément de déformation plastique
-            # Calculate plastic strain increment
-            dp = (effective_stress - yield_stress) / E
-
-            # Mise à jour de la déformation plastique cumulée
-            # Update cumulative plastic strain
-            p += dp
-
-            # Mise à jour de la contrainte interne (écrouissage cinématique)
-            # Update backstress (kinematic hardening)
-            backstress += C * dp * np.sign(trial_stress - backstress)
-
-            # Mise à jour de la déformation plastique
-            # Update the plastic strain
-            plastic_strain += dp * np.sign(trial_stress - backstress)
-
-            # Correction de la contrainte après plasticité
-            # Correct the stress after plasticity
-            stress = sigma_y + R + backstress * np.sign(trial_stress - backstress)
-        else:
-            # Réponse élastique
-            # Elastic response
-            stress = trial_stress
-
-        # Ajouter la contrainte simulée à la sortie
-        # Append the simulated stress to the output
-        stress_output.append(stress)
-
-    # Retourner les contraintes simulées sous forme de tableau NumPy
-    # Return the simulated stresses as a NumPy array
-    return np.array(stress_output)
 
 
 def sim_chaboche(E, sigma_y, C, gamma, Q, b, strain_input):
