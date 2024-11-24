@@ -107,61 +107,96 @@ def simulate_chaboche(E, sigma_y, C, gamma, Q, b, strain_input):
 
 
 def sim_chaboche(E, sigma_y, C, gamma, Q, b, strain_input):
-
     stress_output = []
+    X = 0  # Kinematic hardening variable
+    R = 0  # Isotropic hardening variable
+    p = 0  # Accumulated plastic strain
 
-    sigma_max_i = 0
-    epsilon_max_i = 0
-    epsilon_max_track = 0
-
-    epsilon_elastic_i = 0
-
-    sigma_max_elastic = 0
-    sigma_prec = 0
-
-    p = 0
-
-    sigma_y_i = sigma_y
-    signe = True
-
+    sigma_prev = 0
+    epsilon_prev = 0
 
     for i, epsilon in enumerate(strain_input):
+        # Trial stress
+        sigma_trial = E * (epsilon - epsilon_prev) + sigma_prev
 
+        # Yield condition
+        yield_condition = abs(sigma_trial - X) - (sigma_y + R)
 
-        sigma = sigma_max_i + (E * (epsilon - epsilon_max_i))
+        if yield_condition > 0:  # Plastic loading
+            dp = yield_condition / (E + C + b * Q)
+            p += dp  # Update cumulative plastic strain
 
+            # Update isotropic hardening (saturation behavior)
+            R += b * (Q - R) * dp
 
-        if (np.abs(sigma) > sigma_y_i) and ((np.abs(epsilon_max_track) < np.abs(epsilon)) or signe) :
-            print(f"{i:<5} {sigma:<10.2f} {sigma_y_i:<12.2f} {epsilon:<10.2e}")
-            signe = False
-            p = p + np.abs(epsilon - strain_input[i - 1])
+            # Update kinematic hardening (cyclic stabilization)
+            X += C * dp * np.sign(sigma_trial - X) - gamma * X * dp
 
-            X = kinematic_hardening(p, C, gamma)
+            # Compute plastic stress
+            sigma = X + (sigma_y + R) * np.sign(sigma_trial - X)
+        else:  # Elastic loading
+            sigma = sigma_trial
 
-            sigma_plastic = X * np.sign(sigma_max_elastic) + sigma_max_elastic
-
-            stress_output.append(sigma_plastic)
-
-            epsilon_max_i = epsilon
-            epsilon_max_track = epsilon
-            sigma_max_i = sigma_plastic
-
-        else :
-
-            if (sigma_prec * sigma) < 0:
-                epsilon_max_track = 0
-                signe = True
-            sigma_y_i = sigma_y + isotropic_hardening(p, Q, b)  # sigma_y + R
-            epsilon_elastic_i = epsilon
-            sigma_max_elastic = sigma
-            stress_output.append(sigma)
-
-
-        sigma_prec = sigma
+        # Save stress and update history variables
+        stress_output.append(sigma)
+        sigma_prev = sigma
+        epsilon_prev = epsilon
 
     return np.array(stress_output)
 
 
+def sim_chaboche_stress_control(E, sigma_y, C, gamma, Q, b, stress_input):
+    """
+    Simulates the Chaboche model under stress-controlled conditions.
+
+    Parameters:
+        E (float): Young's modulus.
+        sigma_y (float): Initial yield stress.
+        C (float): Kinematic hardening modulus.
+        gamma (float): Kinematic hardening parameter.
+        Q (float): Saturation value for isotropic hardening.
+        b (float): Isotropic hardening rate.
+        stress_input (list or np.array): Sequence of imposed stress values.
+
+    Returns:
+        np.array: Corresponding strain values.
+    """
+    strain_output = []
+    X = 0  # Kinematic hardening variable
+    R = 0  # Isotropic hardening variable
+    p = 0  # Accumulated plastic strain
+
+    sigma_prev = 0
+    epsilon_prev = 0
+
+    for i, sigma in enumerate(stress_input):
+        # Trial strain
+        epsilon_trial = epsilon_prev + (sigma - sigma_prev) / E
+
+        # Yield condition
+        yield_condition = abs(sigma - X) - (sigma_y + R)
+
+        if yield_condition > 0:  # Plastic loading
+            dp = yield_condition / (E + C + b * Q)
+            p += dp  # Update cumulative plastic strain
+
+            # Update isotropic hardening (saturation behavior)
+            R += b * (Q - R) * dp
+
+            # Update kinematic hardening (cyclic stabilization)
+            X += C * dp * np.sign(sigma - X) - gamma * X * dp
+
+            # Correct strain for plasticity
+            epsilon = epsilon_trial + dp * np.sign(sigma - X)
+        else:  # Elastic loading
+            epsilon = epsilon_trial
+
+        # Save strain and update history variables
+        strain_output.append(epsilon)
+        sigma_prev = sigma
+        epsilon_prev = epsilon
+
+    return np.array(strain_output)
 
 
 def get_sigma_y(df, lim=2):
@@ -182,7 +217,38 @@ def get_sigma_y(df, lim=2):
     sigma_y = stress.loc[yield_index]  # Yield stress value
     strain_y = deformation.loc[yield_index]  # Strain at yield
 
-    return sigma_y, strain_y, deformation, predicted_stress, slope
+    strain_plot = np.linspace(deformation.min(), deformation.max(), 100)
+    stress_plot = slope * strain_plot + intercept
+
+    return sigma_y, strain_y, deformation, predicted_stress, slope, strain_plot, stress_plot
+
+
+def format_numbers_dynamic(df, min_value=1e-2, max_value=1e3):
+    """
+    Formats numbers in a DataFrame based on their value range:
+    - Numbers outside the range [min_value, max_value] are formatted in scientific notation (e.g., 1.23e+02).
+    - Numbers within the range are formatted with two decimal places (e.g., 1.23).
+
+    Parameters:
+        df (pd.DataFrame): Input DataFrame.
+        min_value (float): Minimum value for decimal formatting.
+        max_value (float): Maximum value for decimal formatting.
+
+    Returns:
+        pd.DataFrame: DataFrame with formatted numbers as strings.
+    """
+
+    def dynamic_format(x):
+        if isinstance(x, (int, float)):
+            if abs(x) < min_value or abs(x) > max_value:
+                return f"{x:.2e}"  # Scientific notation for values outside the range
+            return f"{x:.2f}"  # Decimal format for values within the range
+        return x  # Return non-numeric values as is
+
+    # Apply the formatting function to all elements in the DataFrame
+    return df.applymap(dynamic_format)
+
+
 
 def get_sigma_cycle(x, y, strain, stress, slope, lim):
     """
